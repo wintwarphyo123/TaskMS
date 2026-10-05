@@ -6,11 +6,13 @@ using System.Text.Json.Serialization;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using TaskManagement.API.Middleware;
+using TaskManagement.API.Extension;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -42,7 +44,9 @@ builder.Services.AddAuthentication(options =>
         )
     };
 });
+builder.Services.AddOpenApiDoc();
 var app = builder.Build();
+app.UseMiddleware<GlobalExceptionMiddleware>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -50,6 +54,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     app.MapScalarApiReference("/docs/scalar");
 }
+
 app.UseHttpsRedirection();
 
 app.UseAuthentication();

@@ -37,4 +37,25 @@
         public string UserName { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
     }
+
+    public class ErrorResponseDto
+    {
+        public int StatusCode { get; set; }
+        public string Message { get; set; } = string.Empty;
+        public string? Details { get; set; }
+    }
+
+    public class AuthResultDto
+    {
+        public string Token { get; set; } = string.Empty;
+        public string RefreshToken { get; set; } = string.Empty;
+        public bool Success { get; set; }
+        public List<string> Errors { get; set; } = new();
+    }
+
+    public class TokenRequestDto
+    {
+        public string Token { get; set; } = string.Empty; // Expired Access Token
+        public string RefreshToken { get; set; } = string.Empty;
+    }
 }

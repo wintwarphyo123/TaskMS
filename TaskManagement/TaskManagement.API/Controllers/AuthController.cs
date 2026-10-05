@@ -7,6 +7,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Authorization;
 
 namespace TaskManagement.API.Controllers
 {
@@ -33,12 +34,14 @@ namespace TaskManagement.API.Controllers
             
             context.Users.Add(Data);
             await context.SaveChangesAsync();
-            return Ok(new AuthResponseDto
-            {
-                UserName=Data.Username,
-                Email=Data.Email,
-                Token=""
-            });
+            var token = await GenerateJwtTokenAsync(Data);
+            //return Ok(new AuthResponseDto
+            //{
+            //    UserName=Data.Username,
+            //    Email=Data.Email,
+            //    Token=""
+            //});
+            return Ok(token);
         }
 
         [HttpPost("login")]
@@ -55,43 +58,161 @@ namespace TaskManagement.API.Controllers
             {
                 return Unauthorized("Invalid Email or Password.");
             }
-            string token = GenerateJwtToken(user);
-            return Ok(new AuthResponseDto
-            {
-                UserName = user.Username,
-                Email = user.Email,
-                Token = token
-            });
+            var token =await GenerateJwtTokenAsync(user);
+            //return Ok(new AuthResponseDto
+            //{
+            //    UserName = user.Username,
+            //    Email = user.Email,
+            //    Token = token
+            //});
+            return Ok(token);
         }
 
-        private string GenerateJwtToken(User user)
+        [HttpPost("logout")]
+        [EndpointSummary("logout")]
+        public async Task<ActionResult> Logout(string refreshToken)
         {
-            // 1. Token ထဲတွင် မြှုပ်နှံထည့်သွင်းမည့် User Claims များ
-            var claims = new[]
+            var token=await context.RefreshTokens.FirstOrDefaultAsync(t => t.Token==refreshToken && !t.IsRevoked);
+            if(token == null)
             {
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Email, user.Email)
+                return BadRequest("Invalid");
+            }
+            // Logout logic (e.g., invalidate the token, clear cookies, etc.)
+            token.IsRevoked = true;
+            await context.SaveChangesAsync();
+            return Ok(new { message = "Logged out successfully" });
+        }
+
+        [AllowAnonymous]
+        [HttpPost("refresh-token")]
+        public async Task<ActionResult> RefreshToken(TokenRequestDto tokenRequest)
+        {
+            var result = await VerifyAndGenerateTokenAsync(tokenRequest);
+
+            if (!result.Success)
+            {
+                return BadRequest(result);
+            }
+
+            return Ok(result);
+        }
+
+        private async Task<AuthResultDto> GenerateJwtTokenAsync(User user)
+        {
+            var jwtTokenHandler = new JwtSecurityTokenHandler();
+            var key = Encoding.UTF8.GetBytes(config["Jwt:Key"]!);
+
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity(new[]
+                {
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new Claim(ClaimTypes.Name, user.Username),
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+        }),
+                Expires = DateTime.UtcNow.AddMinutes(5), // Access Token သက်တမ်း ၁၅ မိနစ်
+                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
+                Issuer = config["Jwt:Issuer"],
+                Audience = config["Jwt:Audience"]
             };
 
-            // 2. appsettings.json ထဲမှ Secret Key ကို ယူ၍ Security Key ပြုလုပ်ခြင်း
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!));
-            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+            var token = jwtTokenHandler.CreateToken(tokenDescriptor);
+            var jwtToken = jwtTokenHandler.WriteToken(token);
 
-            // 3. Expiration Time နှင့် Token Description သတ်မှတ်ခြင်း
-            var durationInDays = double.Parse(config["Jwt:DurationInDays"] ?? "7");
-            var expires = DateTime.UtcNow.AddDays(durationInDays);
+            // Refresh Token ဖန်တီးခြင်း
+            var refreshToken = new RefreshToken
+            {
+                JwtId = token.Id,
+                IsUsed = false,
+                IsRevoked = false,
+                UserId = user.Id,
+                AddedDate = DateTime.UtcNow,
+                ExpiryDate = DateTime.UtcNow.AddDays(7), // Refresh Token သက်တမ်း ၇ ရက်
+                Token = Guid.NewGuid().ToString() + "-" + Guid.NewGuid().ToString()
+            };
 
-            var token = new JwtSecurityToken(
-                issuer: config["Jwt:Issuer"],
-                audience: config["Jwt:Audience"],
-                claims: claims,
-                expires: expires,
-                signingCredentials: creds
-            );
+            await context.RefreshTokens.AddAsync(refreshToken);
+            await context.SaveChangesAsync();
 
-            // 4. Token စာကြောင်းအဖြစ် ပြောင်းလဲ၍ Return ပြန်ပေးခြင်း
-            return new JwtSecurityTokenHandler().WriteToken(token);
+            return new AuthResultDto
+            {
+                Token = jwtToken,
+                RefreshToken = refreshToken.Token,
+                Success = true
+            };
+        }
+
+        private async Task<AuthResultDto> VerifyAndGenerateTokenAsync(TokenRequestDto tokenRequest)
+        {
+            var jwtTokenHandler = new JwtSecurityTokenHandler();
+
+            try
+            {
+                // Token validation parameters
+                var tokenValidationParams = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidIssuer = config["Jwt:Issuer"],
+                    ValidAudience = config["Jwt:Audience"],
+                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!)),
+                    ValidateLifetime = false // Expired Token ကို စစ်ဆေးရန် Lifetime Check ကို ခေတ္တ ပိတ်ထားသည်
+                };
+
+                // 1. Access Token Format မှန်မမှန် စစ်ဆေးခြင်း
+                var tokenInVerification = jwtTokenHandler.ValidateToken(tokenRequest.Token, tokenValidationParams, out var validatedToken);
+
+                if (validatedToken is JwtSecurityToken jwtSecurityToken)
+                {
+                    var result = jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase);
+                    if (!result) return new AuthResultDto { Success = false, Errors = new List<string> { "Invalid Token Algorithm" } };
+                }
+
+                // 2. Token Expire ဖြစ်မဖြစ် စစ်ဆေးခြင်း
+                var utcExpiryDate = long.Parse(tokenInVerification.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Exp)!.Value);
+                var expiryDate = UnixTimeStampToDateTime(utcExpiryDate);
+
+                if (expiryDate > DateTime.UtcNow)
+                {
+                    return new AuthResultDto { Success = false, Errors = new List<string> { "Access Token has not expired yet" } };
+                }
+
+                // 3. Refresh Token DB ထဲတွင် ရှိမရှိ စစ်ဆေးခြင်း
+                var storedToken = await context.RefreshTokens.FirstOrDefaultAsync(x => x.Token == tokenRequest.RefreshToken);
+
+                if (storedToken == null || storedToken.IsUsed || storedToken.IsRevoked || storedToken.ExpiryDate < DateTime.UtcNow)
+                {
+                    return new AuthResultDto { Success = false, Errors = new List<string> { "Invalid or expired Refresh Token" } };
+                }
+
+                // 4. JTI မူလ Token နဲ့ ကိုက်ညီမှု ရှိမရှိ စစ်ဆေးခြင်း
+                var jti = tokenInVerification.Claims.FirstOrDefault(x => x.Type == JwtRegisteredClaimNames.Jti)!.Value;
+                if (storedToken.JwtId != jti)
+                {
+                    return new AuthResultDto { Success = false, Errors = new List<string> { "Token mismatch" } };
+                }
+
+                // Old Refresh Token ကို IsUsed = true ဟု ပြောင်းလဲခြင်း (Token Rotation)
+                storedToken.IsUsed = true;
+                context.RefreshTokens.Update(storedToken);
+                await context.SaveChangesAsync();
+
+                // Token အသစ် ထုတ်ပေးခြင်း
+                var dbUser = await context.Users.FindAsync(storedToken.UserId);
+                return await GenerateJwtTokenAsync(dbUser!);
+            }
+            catch (Exception)
+            {
+                return new AuthResultDto { Success = false, Errors = new List<string> { "Something went wrong" } };
+            }
+        }
+
+        private DateTime UnixTimeStampToDateTime(long unixTimeStamp)
+        {
+            var dateTimeInterval = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+            return dateTimeInterval.AddSeconds(unixTimeStamp).ToUniversalTime();
         }
     }
 }
