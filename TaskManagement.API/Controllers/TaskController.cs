@@ -61,7 +61,9 @@ namespace TaskManagement.API.Controllers
         public async Task<ActionResult> GetTaskByDate([FromQuery] DateTime? date)
         {
             var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-            var query = context.Tasks.Where(t => t.UserId == userId);
+            var query = context.Tasks
+                .Include(t=>t.Category)
+                .Where(t => t.UserId == userId && t.DueDate.HasValue);
             if (date.HasValue)
             {
                 query = query.Where(t => t.DueDate.HasValue &&
