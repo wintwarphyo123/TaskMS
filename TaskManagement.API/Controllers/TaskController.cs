@@ -39,6 +39,38 @@ namespace TaskManagement.API.Controllers
             return task;
         }
 
+        [HttpGet("category/{id}")]
+        [EndpointSummary("get task by category")]
+        public async Task<ActionResult> GetByCat(int id)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(userIdString, out int userId))
+            {
+                return Unauthorized();
+            }
+            var taskData = await context.Tasks.Where(t => t.CategoryId == id && t.UserId==userId).ToListAsync();
+            if (taskData == null)
+            {
+                return BadRequest("Data does not exist");
+            }
+            return Ok(taskData);
+        }
+
+        [HttpGet("date")]
+        [EndpointSummary("Get tasks by date")]
+        public async Task<ActionResult> GetTaskByDate([FromQuery] DateTime? date)
+        {
+            var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var query = context.Tasks.Where(t => t.UserId == userId);
+            if (date.HasValue)
+            {
+                query = query.Where(t => t.DueDate.HasValue &&
+                                 t.DueDate.Value.Date == date.Value.Date);
+            }
+            var task = await query.ToListAsync();
+            return Ok(task);
+        }
+
         [HttpPost]
         [EndpointSummary("Create new Task")]
         public async Task<ActionResult> CreateTask(TaskRequestDto taskDto)
@@ -49,7 +81,11 @@ namespace TaskManagement.API.Controllers
                 Title = taskDto.Title,
                 Description = taskDto.Description,
                 UserId=userId,
-                CategoryId=taskDto.CategoryId,
+                DueDate=taskDto.DueDate,
+                StartTime=taskDto.StartTime,
+                EndTime=taskDto.EndTime,
+                CategoryId =taskDto.CategoryId,
+                CreatedAt= DateTime.UtcNow,
             };
             context.Tasks.Add(task);
             await context.SaveChangesAsync();
@@ -68,6 +104,8 @@ namespace TaskManagement.API.Controllers
             task.Title = taskDto.Title;
             task.Description = taskDto.Description;
             task.Status = taskDto.Status;
+            task.StartTime = taskDto.StartTime;
+            task.EndTime = taskDto.EndTime;
             task.CategoryId = taskDto.CategoryId;
             await context.SaveChangesAsync();
             return NoContent();

@@ -5,10 +5,13 @@
         public string Name { get; set; } = string.Empty;
     }
     public class TaskRequestDto
-    {
+    {//title, description,userId,CategoryId
         public string Title { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public int UserId { get; set; }
+        public DateTime? DueDate { get; set; }
+        public DateTime? StartTime { get; set; }
+        public DateTime? EndTime { get; set; }
         public int CategoryId { get; set; }
     }
     public class UpdateTaskRequestDto
@@ -16,7 +19,8 @@
         public string Title { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public string Status { get; set; } = "Todo"; // Todo, InProgress, Done
-        //public int UserId { get; set; }
+        public DateTime? StartTime { get; set; }
+        public DateTime? EndTime { get; set; }
         public int CategoryId { get; set; }
     }
     public class RegisterDto
@@ -57,5 +61,11 @@
     {
         public string Token { get; set; } = string.Empty; // Expired Access Token
         public string RefreshToken { get; set; } = string.Empty;
+    }
+
+    public class ChangePasswordDto
+    {
+        public string OldPassword { get; set; } = string.Empty;
+        public string NewPassword { get; set; } = string.Empty;
     }
 }

@@ -67,7 +67,7 @@ namespace TaskManagement.API.Controllers
             //});
             return Ok(token);
         }
-
+        [Authorize]
         [HttpPost("logout")]
         [EndpointSummary("logout")]
         public async Task<ActionResult> Logout(string refreshToken)
@@ -97,6 +97,42 @@ namespace TaskManagement.API.Controllers
             return Ok(result);
         }
 
+        [HttpPost("ChangePassword")]
+        [EndpointSummary("Change Password")]
+        public async Task<ActionResult> ChangePassword(ChangePasswordDto passowrdDto)
+        {
+            var userIdString = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!int.TryParse(userIdString, out int userId))
+            {
+                return Unauthorized();
+            }
+            var user = await context.Users.FindAsync(userId);
+            if (user == null)
+            {
+                return NotFound();
+            }
+            bool IsPassword = BCrypt.Net.BCrypt.Verify(passowrdDto.OldPassword, user.PasswordHash);
+            if (!IsPassword)
+            {
+                return BadRequest("Current Password is incorrect");
+            }
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(passowrdDto.NewPassword);
+            context.Users.Update(user);
+
+            var activeRefreshTokens = await context.RefreshTokens
+        .Where(rt => rt.UserId == userId && !rt.IsRevoked)
+        .ToListAsync();
+
+            foreach (var token in activeRefreshTokens)
+            {
+                token.IsRevoked = true;
+            }
+
+            await context.SaveChangesAsync();
+
+            return Ok(new { message = "Password changed successfully. Please login again." });
+        }
+
         private async Task<AuthResultDto> GenerateJwtTokenAsync(User user)
         {
             var jwtTokenHandler = new JwtSecurityTokenHandler();
@@ -111,7 +147,7 @@ namespace TaskManagement.API.Controllers
             new Claim(ClaimTypes.Email, user.Email),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         }),
-                Expires = DateTime.UtcNow.AddMinutes(5), // Access Token သက်တမ်း ၁၅ မိနစ်
+                Expires = DateTime.UtcNow.AddMinutes(15), // Access Token သက်တမ်း ၁၅ မိနစ်
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
                 Issuer = config["Jwt:Issuer"],
                 Audience = config["Jwt:Audience"]

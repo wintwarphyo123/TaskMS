@@ -45,6 +45,15 @@ builder.Services.AddAuthentication(options =>
     };
 });
 builder.Services.AddOpenApiDoc();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular", policy =>
+    {
+        policy.WithOrigins("http://localhost:4200")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 var app = builder.Build();
 app.UseMiddleware<GlobalExceptionMiddleware>();
 
@@ -54,6 +63,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
     app.MapScalarApiReference("/docs/scalar");
 }
+app.UseCors("AllowAngular");
 
 app.UseHttpsRedirection();
 

@@ -38,9 +38,24 @@ namespace TaskManagement.API.Controllers
             {
                 Name = categoryDto.Name
             };
+
             context.Categories.Add(category);
             await context.SaveChangesAsync();
             return CreatedAtAction(nameof(GetCategory), new { id = category.Id }, category);
+        }
+
+        [HttpPut("{id}")]
+        [EndpointSummary("update Category")]
+        public async Task<ActionResult> UpdateCategory(int id,RequestDtos categoryDto)
+        {
+            var cat = await context.Categories.FindAsync(id);
+            if (cat == null)
+            {
+                return NotFound();
+            }
+            cat.Name = categoryDto.Name;
+            await context.SaveChangesAsync();
+            return Ok(cat);
         }
 
         [HttpDelete("{id}")]
